@@ -1,3 +1,2 @@
 # **Readme** 
-## This repo contains sample utility code designed for different projects in R. 
-## The files are not available in this repo.
+### This repo contains sample utility code designed for different projects in R. The files the code refers to are not available in this repo.
