@@ -1,5 +1,5 @@
 #################################################################################
-#Wearables Study Batch Processing Utility Script                                        #
+#Wearables Study Batch Processing Utility Script                                #
 # Purpose: Create summary visualizations for all 72 participant's wearable data #
 #Date: 1.11.2016                                                                #
 #################################################################################
