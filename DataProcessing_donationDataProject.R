@@ -1,7 +1,7 @@
-#################################################
-# Data Processing for Data Warehousing Project  #
-# (Code Processing Snippets)
-################################################
+############################################################
+# Data Processing for Data Warehousing Project (Dec 2015)  #
+# (Code Processing Snippets)                               #
+############################################################
 #EXPLANATION#
 #DonationFact Table (accumulating snapshot)
 #If all 23 promos were mailed to all donors
