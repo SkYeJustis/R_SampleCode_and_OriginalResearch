@@ -1,6 +1,6 @@
 ---
 title: Visualization Project
-author: Sook Yee Leung
+author: SYL
 output: html_document
 ---
 
