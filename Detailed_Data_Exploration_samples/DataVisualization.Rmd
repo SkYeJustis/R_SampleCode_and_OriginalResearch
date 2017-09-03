@@ -1,0 +1,512 @@
+---
+title: Visualization Project
+author: SYL
+output: html_document
+---
+
+
+Introduction
+============
+
+My data exploration and visualization centered around predicting pupils of Netherland's characteristics vis-a-vis the nlschools dataset and, ultimately, analyzing how their characteristics affected their academic performance in language testing.
+
+The following indicates an outline of my main steps and findings considering the guiding questions:
+**1. Are there descrepancies in `IQ` or `SES` in the different classes, or when grouping by multi-grade vs non-multi-grade classes?**
+
+
+* Main steps:
+  + Plots: Class by IQ, Class by SES
+    + Given the 95% confidence intervals of IQ averages or SES averages among students in different classes, the distribution of classes shows a clear pattern. Classes may have specific characteristics that need to be further explored.
+  * Plots: COMB by IQ, COMB by SES
+    * One such characterstic was the class type (COMB): multigrade or not. Given the 95% confidence intervals of IQ averages or SES averages among students  class types, there is a clear pattern that singlegrade classes tend to have students of higher IQ and of higher SES.
+  * T- Test: COMB by IQ, COMB by SES
+    * The t-test confirmed that the difference between the two class types (COMB), were statistically significant. 
+  * Logistic Regression: COMB by IQ, COMB by SES
+    * This was an attempt to model the realtionship with a logistic regression. Predictions of a pupil's likelihood to be in a single or multigrade class based on SES or IQ were not telling. Predictions tended to fall between approximately between 25% and 50% 
+
+**2. When did students perform better or worse on the language exam? Describe which variables had the most important effects.** 
+
+
+* Main steps:
+  * Backwards and forwards variable selection with linear variables (df= 1)
+    * Findings: Both method yielded the same model.
+      * All variables except class size was kept. 
+      * Upon checking the residuals, it was found that the resdiuals were not identically distributed and that perhaps a more complex, nonlinear model may make better predictions.
+      * The IQ variable in particular lacked a reasonable identically distributed fit.
+  * Used a generalized additive model with forward selection
+    * Findings: A nonlinear fit was added for the SES variable (df =2) rather than for the IQ variable.
+    * It was possible that including interaction terms in the model may better account for predicting lang (language scores).
+
+**3. Do you think there are interactions in the effects of the variables on the language exam score? Speculate as to the cause of any such effects that you think should be included.**
+
+
+* Main steps:
+  * Modelled interactions with the Generalized Additive Model using forward selection
+    * Findings: The IQ:COMB term was added to the previous model, indicating that IQ and Class type interaction may aid in better prediction of the language scores.   
+  * Co-plots to view interactions
+    * Finding: There is an interaction between IQ and  SES that contributes to predicting language scores.
+      * In particular, those with a higher SES but lower IQ tend to outperform those with a low SES and a low IQ.
+  * Model-based clustering
+      * Finding: Depicted and described three groups of pupils in the Netherlands, demonstrating the relationship between academic performance and IQ that is moderated by SES.
+        * Group 1: High SES and moderate academic performance group (low IQ)
+        * Group 2: High SES and high academic performance group (high IQ)
+        * Group 3: Low SES group (diverse IQ)
+
+
+Analysis
+========
+
+
+These are the libraries used in the analysis.
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+library(ggplot2)
+library(plyr)
+library(reshape2)
+library(splines)
+library(boot)
+library(MASS)
+library(broom)
+library(Hmisc)
+```
+
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+#Save the original graph as a dataframe object to manipulate clumns for plotting
+nlschools.df = nlschools 
+
+#Summary statistics
+summary(nlschools.df) 
+```
+
+Observations: There is one categorical variable: COMB (class type). The rest are numeric. Standardization may be needed in modeling phase.
+
+
+
+1. Are there descrepancies in `IQ` or `SES` in the different classes, or when grouping by multi-grade vs non-multi-grade classes?
+
+
+Plots of different classes
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+##Re-order class id by IQ
+nlschools.df$class = with(nlschools.df, reorder(class, IQ))
+
+#Plot class by IQ to better view patterns across IQ averages per class and the confidence intervals
+ggplot(data = nlschools.df, mapping=aes(x = class, y = IQ, group = class)) + stat_summary(fun.data = mean_cl_boot, geom='pointrange') + labs(title= 'IQ Average by Class', x = 'Class ID', y = 'Average IQ') + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#Rotate x labels source:
+# http://stackoverflow.com/questions/1330989/rotating-and-spacing-axis-labels-in-ggplot2
+
+```
+
+It seems that each class has a relatively similar group of students in terms of IQ. In other words, all classes do not have wide confidence intervals that span accross the bottommost and uppermost IQ values. The confidence intervals tend to be fairly narrow and restricted to approximate variations of +/-2.5 according to 95% confidence level limits. 
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+##Re-order class id by SES to better view patterns across SES score averages per class and the confidence intervals
+nlschools.df$class = with(nlschools.df, reorder(class, SES))
+
+##Visual check SES by classes
+ggplot(data = nlschools.df, mapping=aes(x = class, y = SES, group = class)) + stat_summary(fun.data = mean_cl_boot, geom='pointrange') + labs(title= 'IQ Average by SES', x = 'Class ID', y = 'Socioeconomic Status Score (SES)') + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+It seems that each class has a relatively similar group of students in terms of SES scores. In other words, all classes do not have wide confidence intervals that span accross the bottommost and uppermost SES values. The confidence intervals tend to be fairly narrow and restricted to approximate variations of +/-10 according to 95% confidence level limits. 
+
+Given the patterns among individual classes and IQ or individual classes and SES, it may be useful to have additional categorical/nominal variables that point out certain features of the classes that better illustrate relationships between classes and IQ or classes and SES.
+
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+##The COMB value or the multigrade or non-mutigrade class grouping may be a class-specific factor that distinguishes differences between pupils and SES or pupils and IQ 
+nlschools.df$COMB = mapvalues(nlschools.df$COMB, 
+                                from=c('1', '0'),
+                                to=c('Multiple Grades', 'Single Grade'))
+
+##Visual check IQ by COMB
+ggplot(data = nlschools.df, mapping=aes(x = COMB, y = IQ, color = COMB, group = COMB)) + stat_summary(fun.data = mean_cl_boot, geom='pointrange') + labs(color = 'Class Type', x='Class Type', y='IQ Average', title = 'Average of IQs vs. Class Type')
+
+
+
+```
+
+It is clear that COMB affects IQ. The confidence intervals of IQ do not overlap.
+
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+#We can also check the probability that being of a certain SES is indicative of being in a Multigrade class or not through a logistic regression.
+
+##Visual check SES  by COMB
+ggplot(data = nlschools.df, mapping=aes(x = COMB, y = SES, color = COMB, group = COMB)) + stat_summary(fun.data = mean_cl_boot, geom='pointrange') + labs(color = 'Class Type', x='Class Type', y='SES average', title = 'Average of SES vs. Class Type')
+
+
+
+```
+
+It is clear that COMB affects SES. The confidence intervals of SES do not overlap.
+
+
+Are the differences between class types significantly different? 
+```{r }
+#Determine with T-test
+#Source: http://ww2.coastal.edu/kingw/statistics/R-tutorials/independent-t.html
+multigrade.IQ = subset(nlschools.df, subset = COMB=='Multiple Grades', select = IQ)
+singlegrade.IQ = subset(nlschools.df, subset = COMB=='Single Grade', select = IQ)
+  
+
+#Default is two tailed test
+t.test(multigrade.IQ, singlegrade.IQ)
+```
+
+According to the t-test, COMB (being in a multigrade class or not) is highly likely (p < 0.05) to indicate a student's IQ range (or vice versa) in the Netherland pupils in this dataset.
+
+
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+multigrade.SES = subset(nlschools.df, subset = COMB=='Multiple Grades', select = SES)
+singlegrade.SES = subset(nlschools.df, subset = COMB=='Single Grade', select = SES)
+
+#Default is two tailed test
+t.test(multigrade.SES, singlegrade.SES)
+
+```
+
+According to the t-test, COMB (being in a multigrade class or not) is highly likely (p < 0.05) to indicate a student's SES range (or vice versa) in the Netherland pupils in this dataset.
+
+
+Logistic Regressions
+We can also check the probability that being of a certain SES is indicative of being in a Multigrade class or not through a logistic regression.
+Essentially, we can perform similar checks with other categorical variables in the dataset, if more categorical variables were available.
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+#Given that COMB is a categorical variable indicating multi=grade classes or no, I considered COMB in a logistical model
+
+# create a categorical variable is.multiplegrade to indicate multiple grade class
+nlschools.df = mutate(nlschools.df, is.multiplegrades = COMB == 'Multiple Grades')
+
+# point.jitter: saves typing later on
+point.jitter = geom_point(position=position_jitter(height=0.02, width=0), size=1.5)
+
+# convert is.multiplegrades to numeric for linear regression
+nlschools.df$is.multiplegrades = mapvalues(nlschools.df$is.multiplegrades, from = c('TRUE', 'FALSE'), to = c(1,0))
+
+# fit a logistic regression 
+glm.model = glm(is.multiplegrades ~ SES, data = nlschools.df, family = 'binomial')
+
+# extract the predictions and residuals
+glm.augment = augment(glm.model, data = nlschools.df, type.predict = 'response', type.residuals = 'response')
+
+# plot the predictions
+ggplot(data=glm.augment, mapping=aes(x=SES, y=is.multiplegrades)) + point.jitter + geom_line(mapping=aes(x=SES, y=.fitted))
+
+
+```
+
+The range of predictions of class type tend fall below 50%. 
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+#Given that COMB is a categorical variable indicating multi=grade classes or no, I considered COMB in a logistical model
+
+# fit a logistic regression 
+glm.model = glm(is.multiplegrades ~ IQ, data = nlschools.df, family = 'binomial')
+
+# extract the predictions and residuals
+glm.augment = augment(glm.model, data = nlschools.df, type.predict = 'response', type.residuals = 'response')
+
+# plot the predictions
+ggplot(data=glm.augment, mapping=aes(x=IQ, y=is.multiplegrades)) + point.jitter + geom_line(mapping=aes(x=IQ, y=.fitted))
+
+
+```
+Again, the range of predictions of class type tend fall below 50%. 
+
+
+While both logistical regression model plots did not yield a model that would predict class type based on SES or IQ, it is still clear that there is a significant IQ and SES difference based on the above analyses.
+Nevertheless, since categorical grouping may yield more insight about students. For instance, it may be helpful to have an IQ groups variable or other characteristics of pupils available.
+
+
+Question 2. When did students perform better or worse on the language exam? Describe which variables had the most important effects. 
+
+Backwards and forward variable selection
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+#Obtain dataset again without adjustment made in previous analysis
+nlschools.df = nlschools
+
+#Excluded class because class ids do not yield meaningful information/patterns in this data
+nlschools.df = subset(nlschools.df, select = c(lang, IQ, GS, SES, COMB) ) 
+
+#Ascertained dataframe sctructure for analysis
+nlschools.df = as.data.frame(nlschools.df)
+
+#Changed factor into number for standardzing the data
+nlschools.df$COMB = as.numeric(nlschools.df$COMB)
+
+#To better view relationships, I normalized the data to zero mean and unit variance
+#Source: http://stackoverflow.com/questions/15215457/standardize-data-columns-in-r
+scaled.nlschools = scale(nlschools.df)
+
+#Ascertained dataframe structure for analysis
+scaled.nlschools = as.data.frame(scaled.nlschools)
+
+#Obtain the full model that considers all variables
+full.model = lm(lang ~ ., data = scaled.nlschools)
+summary(full.model)
+
+#The following is the function I used for this purpose:
+plot.coef = function(model) { 
+  plot.df = data.frame( names = names(coefficients(model)), coef = coefficients(model), lower = confint(model)[, 1], upper = confint(model)[, 2])
+  plot.df$names = with(plot.df, reorder(x = names, X = coef, FUN=mean))
+  plot.out = ggplot(data = plot.df, mapping = aes(x = names, y = coef, ymin = lower, ymax = upper)) + geom_pointrange() + coord_flip() + labs(x='', y= '')
+  return(plot.out)
+}
+
+#Checked the coefficients for the linear model
+plot.coef(full.model) + theme(text = element_text(size=18))
+```
+
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+
+# Forward variable selection:
+# Initial model: use no variables
+empty.model = lm(lang ~ 1, data = scaled.nlschools)
+
+#View the output of the forward selection: lowest AIC is preferred
+forward.step = step(empty.model, direction='forward', scope = formula(full.model))
+
+#View the coefficients
+plot.coef(forward.step) + theme(text = element_text(size=18))
+
+```
+Findings:
+ * GS (class size) was removed. 
+
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+
+#Backward variable selection
+
+#View the output: Lowest AIC is preferred
+linear.back.model = step(full.model)
+
+#View the coeffificents
+plot.coef(linear.back.model) + theme(text = element_text(size=18))
+```
+
+Findings:
+ 
+* Likewise, GS (class size) was removed. 
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+#Viewing residuals according to the forward step model. 
+#Either forward or backward models would have been fine. The above analyses only considered a df = 1, a linear relationship between the variable and lang (language test score).
+
+lm.augment = augment(forward.step, data= scaled.nlschools)
+
+# pattern in IQ
+ggplot(data=lm.augment, mapping=aes(x=IQ, y=.resid)) + geom_point()
+
+#  lack of a pattern in SES
+ggplot(data=lm.augment, mapping=aes(x=SES, y=.resid)) + geom_point()
+
+# Even though, COMB (class type) is a categorical variable, it was still interesting to observe the residual differences on the two binary values (multigrade or not multigrade). There seems to be a lack of a pattern.
+ggplot(data=lm.augment, mapping=aes(x=COMB, y=.resid)) + geom_point()
+```
+
+Still, the residual for IQ reveals that the current fitted model is not complex enough to fit the data and make reasonable predictions across all multiple regression variables.
+
+Exploring non-linear fits for the multiple regression model may be more useful.
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+# Use splines to fit a better model
+library(gam)
+
+
+#Considered linear and non-linear predictor fits as well.
+# let R choose df for splines in each input variable
+scope.list = list(
+  "COMB" = ~ 1 + COMB,
+  "SES" = ~ 1 + SES + ns(SES, df=2) + ns(SES, df=3) + ns(SES, df=4),
+  "GS" = ~ 1 + GS + ns(GS, df=2) + ns(GS, df=3) + ns(GS, df=4),
+  "IQ" = ~ 1 + IQ + ns(IQ, df=2) + ns(IQ, df=3) + ns(IQ, df=4)) 
+
+
+#Forward selection: Used the empty model to start
+start.model = gam(lang ~ 1, data = scaled.nlschools)
+# variable selection. output suppressed because it's long:
+spline.step = step.gam(start.model, scope = scope.list)
+```
+
+Contrary to the previous residual observations, the spline model chose to fit a nonlinear fit to account for SES. 
+
+```{r fig.width=2.8, fig.height=2.8, dpi=120, cache=TRUE, fig.show='hold'}
+# View the forward selection fitted model with nonlinear splines
+plot.gam(spline.step, se=T)
+
+```
+
+Upon viewing the graphs indicating the error bar predictions along with the model fit, while SES seems to have a more even distribution of predictions on both sides of the predicted values, IQ still lacks evenly distributed error ranges for its predicted values. The error bar range is wider at lower IQ and higher IQ extremes.
+
+
+
+
+3. Do you think there are interactions in the effects of the variables on the language exam score? Speculate as to the cause of any such effects that you think should be included.
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+# Start with the GAM model, with splines from the previous model
+start.model = lm(formula(spline.step), data = scaled.nlschools)
+
+# the full model is the GAM plus all linear interactions found to be informative in the previous forward variable selection
+# I.E., Step:4 lang ~ COMB + ns(SES, df = 2) + IQ ; AIC= 5294.077 
+all.interactions = lm(lang ~ .^2 + ns(SES, df = 2) + IQ + COMB, data = scaled.nlschools)
+
+# do forward variable selection. note start is the GAM and not the empty model
+# output suppressed due to length
+interactions.gam.step = step(start.model, direction='forward', scope = formula(all.interactions))
+
+formula(interactions.gam.step)
+
+# View plot
+plot.coef(interactions.gam.step)+ theme(text = element_text(size=18))
+
+```
+
+
+
+```{r fig.width=2.8, fig.height=2.8, dpi=120, cache=TRUE, fig.show='hold'}
+# plot the splines (interactions are not shown)
+plot.gam(interactions.gam.step, se=T)
+
+```
+
+
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+#Obtain the residuals and examine all of the terms 
+gam.augment = mutate(scaled.nlschools, .fitted=predict(interactions.gam.step), .resid = lang - .fitted)
+
+# pattern in IQ
+ggplot(data = gam.augment, mapping=aes(x=IQ, y=.resid)) + geom_point()
+
+# lack of a pattern in SES 
+ggplot(data = gam.augment, mapping=aes(x=SES, y=.resid)) + geom_point()
+
+
+# lack of a pattern in SES with df= 2
+ggplot(data = gam.augment, mapping=aes(x=SES*SES, y=.resid)) + geom_point()
+
+# lack of a pattern in COMB
+ggplot(data = gam.augment, mapping=aes(x=COMB, y=.resid)) + geom_point()
+
+# pattern in IQ score * Class type
+ggplot(data = gam.augment, mapping=aes(x=IQ*COMB, y=.resid)) + geom_point()
+
+
+```
+
+
+Findngs:
+
+* While an interaction term was added, the interaction term seemed also be affected by another factor (non-identically distributed residuals).
+
+* The interaction model considers SES to be partocularly important since there are two terms with SES-- a linear and a nonlinear term.
+
+* Co plots and MCluster visualization may allow better insight in SES's impact on lang.
+
+Co-plots may yield better insight on the interactions:
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+library(car)
+
+#Check/Validate with co-plot esp. for nominal variables
+#When the conditioning variable is categorical we can just use facet_wrap(). Here is one of the interactions that remained in the GAM model.
+ggplot(data = nlschools.df, mapping = aes(y=lang, x = IQ)) + geom_point() + geom_smooth(method='lm') + facet_wrap('COMB')
+
+#If I were to unscale the values, the trend would be the same
+ggplot(data = nlschools, mapping = aes(y=lang, x = IQ)) + geom_point() + geom_smooth(method='lm') + facet_wrap('COMB')
+
+#The co-plot deomonstrates how language test scores may be affected by 
+ggplot(data = scaled.nlschools, mapping = aes(y=lang, x = SES)) + geom_point() + geom_smooth(method='lm') + facet_wrap('COMB')
+
+#If I were to unscale the values, the trend would be the same
+ggplot(data = nlschools, mapping = aes(y=lang, x = IQ)) + geom_point() + geom_smooth(method='lm') + facet_wrap('COMB')
+```
+
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+coplot(data= scaled.nlschools, lang ~ IQ  | SES, panel=panel.smooth, cex=.1, span=.1, rows=1, lwd=3)
+
+#The same trend shows on the unscaled data. We are able to view the exact IQ, SES, and language test scores.
+coplot(data= nlschools, lang ~ IQ  | SES, panel=panel.smooth, cex=.1, span=.1, rows=1, lwd=3)
+```
+Findings:
+
+* The trends indicated that students with higher IQs tended to score high regardless of SES. Nevertheless, students with a lower IQ score may score higher or lower depending on thier socioeconomic status. It is clear that poorer students with a below average IQ in the first three graphs scored low, indicating an almost linear relationship that was unaffected by SES. However, the students with above average SES and had a lower than average IQ were able to attain higher scores than students with comparable IQs but lower SES. There is almost a u-shaped curve in the last three graphs. 
+
+* The u-shaped curve may indicate that the following scenario: low IQ students of above average SES status may recieve special attention and additional resources to aid them inpreparing for their language exam.
+
+* Regardless, it is clear that there is an interaction between IQ and  SES that contributes to predicting language scores.
+
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+
+#The last three graphs show a nearly hiorizontal trend, indicating that the above average IQ pupils ( above 0 [standardized]) tend to be among the higher SES score range.
+coplot(data= scaled.nlschools, lang ~ SES  | IQ, panel=panel.smooth, cex=.1, span=.1, rows=1, lwd=3)
+
+
+#The trends are the same with the unscaled data.
+#We can see that students with higher SES scores tended to score higher on the language exam. Nevertheless, given IQ, students withhigher IQs scored high regardless of their SES.
+coplot(data= nlschools, lang ~ SES  | IQ, panel=panel.smooth, cex=.1, span=.1, rows=1, lwd=3)
+
+```
+
+Findings:
+
+* Similar to the above.
+
+* Also, it seem that the higher a pupil's IQ the more likely the pupil may be of a higher SES.
+
+
+MCluster Visualization
+```{r fig.width=6, fig.height=3, dpi=150, cache=TRUE, fig.align='center'}
+library(mclust)
+nlcluster = nlschools
+
+# Cluster based on the numeric columns of nlschools, with up to 3 groups
+fit = Mclust(nlschools[,c(1,2,4,5) ], G = 1:3)
+# the output contains a vector of the cluster labels called fit$classification
+nlcluster$cluster = fit$classification
+# customize the variable names
+labels = c('language\n test\n score', 'verbal\n IQ', 'Class\n size', 'Socio\n economic\n status')
+
+# create the scatterplot matrix. cex.labels = font size
+pairs(nlschools[,c(1,2,4,5) ], col=nlcluster$cluster, pch = nlcluster$cluster, cex=.2, cex.labels=.8, labels = labels)
+
+```
+Findings:
+
+* Group 1: red -low language test score, lower verbal IQ (than the red group), not low socioeconomic status (approximately above 25) 
+
+* Group 2: green - high language test score, relatively high verbal IQ,  not low socioeconomic status (approximately above 25) 
+
+* Group 3: black - low socioeconomic status, mixed among the other groups in other variables (e.g., high or low IQ, high or low language test score, )
+
+Class size did not seem to indicate any clearly discernable patterns, which justifies the removal of the variable across the above variable selection processes (both linear and non-linear).
+
+It is clear that groups 1 and 2 demonstrate how the SES can impact language test scores. While in Group 3, it is clear that SES does not matter in language test scores for those with a low socioeconomic status--rather verbal IQ does. Group 1 demonstrate that socioeconomic status can affect language test score outcomes by reducing the likelihood that the higher socioeconomic pupils obtain low language test scores: the botommost left panel comparing lang and SES illustrates this. While the red group had lower verbal IQs (like some of their black group counterparts), they still earned higher language test scores.
+
+[Note: I attempted to add the COMB variable to discern any other patterns. However, due to the nominal nature of the variable, the distinctions among the three groups were obscured (not as clear) in the resulting plot. The above plot shows the clearest distinctions.]
+
+Conclusion
+==========
+
+In retrospect, the following are my thoughts and conclusions in regards to the guiding questions:
+
+**1. Are there descrepancies in `IQ` or `SES` in the different classes, or when grouping by multi-grade vs non-multi-grade classes?**
+  
+  Yes, there were discrepancies in IQ and SES among the different classes. Looking at the individual classes according to IQ or SES provided an insigihtful distribution of how the classes differed particularly when 95% confidence intervals differed.  However, examining a feature of the classes was much more informative. It was revealed in a plot and in a t test that pupil IQ and SES differed in that smarter and more rich students tended to be in singlegrade classes. This implies that multigrade classes indicate or cater to pupils with a lack of resources or who need more academic aid.
+
+**2. When did students perform better or worse on the language exam? Describe which variables had the most important effects.** 
+
+   Considering the above, I was not surprised that in predicting language exam scores the backwards and forwards variable selection heuristics chose to keep SES, IQ, and COMB as informative variables. The nonlinear GAM model's choice in forward selection to add a nonlinear (df = 2) SES variable also indicated the complex interaction SES may have with other variables in the model in predicting language exam scores. 
+
+**3. Do you think there are interactions in the effects of the variables on the language exam score? Speculate as to the cause of any such effects that you think should be included.**
+
+While the interaction GAM model indicated that IQ and Class Type was an informative interaction, I was not partcularly convinced since the residual plot for the term showed non-identically distributed residuals--something else may have more of a weight in predicting language exam scores. The co-plots that conditioned based on SES or IQ showed that while IQ predicted language exam scores (e.g., high IQ indicated higher exam score), SES altered the linear relationship--partocularly for the high SES pupils. The model-based clustering graph made the relationship much more concrete by showing the three groups of pupils. The groups demonstrated the moderating effect of SES in that low IQ and high SES individuals were shown as a separate group that tended to obtain better exam scores that low IQ and low SES individuals. The distinction was clearly visualized via the model clustering model.
+  Future analysis may the use of different models to better model the variable contributions to language test scores with more of a focus on the distinctive groups that the model clustering model demonstrated.
+  
