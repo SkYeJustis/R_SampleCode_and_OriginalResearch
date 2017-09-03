@@ -1,0 +1,385 @@
+---
+title: "NYC Taxi Modeling 1"
+output: html_notebook
+---
+
+# Script for NYC Taxi competition on Kaggle.com
+## Data exploration, Feature engineering, multiple model predictions, and ensemble model predictions are noted.
+
+```{r}
+library(data.table)
+
+train = fread('NYCTaxi/train.csv')
+test = fread('NYCTaxi/test.csv')
+
+dim(train)
+dim(test)
+
+colnames(train)
+colnames(test)
+
+# Processing features
+train$id = NULL
+
+library(lubridate)
+train$pickup_datetime = ymd_hms(train$pickup_datetime)
+train$dropoff_datetime  = ymd_hms(train$dropoff_datetime)
+train$pickup_hour = hour(train$pickup_datetime)
+train$pickup_month = month(train$pickup_datetime)
+train$pickup_wkdy = weekdays(train$pickup_datetime)
+```
+
+```{r}
+# We use the multiplot function, courtesy of R Cookbooks to create multi-panel plots.
+#
+# Define multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot = function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+```{r}
+library(ggplot2)
+library(magrittr)
+library(grid)
+
+options(scipen = 999)
+# Variable of interest
+train %>%
+  ggplot(aes(trip_duration)) +
+  geom_histogram(fill = "red", bins = 150) +
+  scale_x_log10() +
+  scale_y_sqrt()
+
+p1 = train %>% ggplot(aes( x = pickup_hour, fill = pickup_hour)) +
+  geom_bar() +
+  theme(legend.position = "none") +
+  labs(title = "Histogram: Pickup Hour",
+       x = "Hour",
+       y = "Frequency")
+
+
+# Fairly even distribution of weekdays
+p2 = train %>% ggplot(aes( x = pickup_wkdy)) +
+  scale_x_discrete() +
+  stat_count(width = 0.5) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Histogram: Pickup Weekday",
+       x = "Weekday",
+       y = "Frequency") 
+
+# Fairly even set of months
+table(train$pickup_month)
+
+
+
+layout = matrix(c(1,2),1,2,byrow=TRUE)
+multiplot(p1, p2, layout=layout)
+
+```
+
+```{r}
+library(plyr)
+
+table(train$pickup_month) # Only 6 months - seasons might not be so useful here
+# train$pickup_season = mapvalues(train$pickup_month,
+#                          from = c(1, 2, 3, 4, 5, 6),
+#                          to = c( "Winter", "Winter",
+#                                 "Spring", "Spring", "Spring", 
+#                                 "Summer"))
+table(train$pickup_wkdy) # All are present. Fairly evenly spread out
+train$is_weekend = mapvalues(train$pickup_wkdy,
+                             from = c("Friday", "Monday", 
+                                      "Wednesday", "Thursday", 
+                                      "Tuesday", 
+                                      "Saturday", "Sunday"),
+                             to = c( 0, 0,
+                                     0, 0,
+                                     0,
+                                     1, 1))
+train$is_weekend = as.numeric(train$is_weekend)
+```
+
+```{r}
+library(dummies)
+table(train$store_and_fwd_flag) 
+
+sffD = as.data.frame(dummy(train$store_and_fwd_flag))
+train$store_and_fwd_flag = NULL
+train = cbind(sffD, train)
+train[,1] = NULL
+colnames(train)[1] = "store_and_fwd_flag"
+
+## Season are not present
+# seasD = as.data.frame(dummy(train$pickup_season)) 
+# train = cbind(seasD, train)
+# train[,1] = NULL
+# colnames(train)[1:2] = c("Season1", "Season2")
+# train$pickup_season = NULL
+
+wkdyD = as.data.frame(dummy(train$pickup_wkdy))
+train = cbind(wkdyD, train)
+train[, 1]= NULL
+train$pickup_wkdy = NULL
+colnames(train)[1:6] = c("Mon", "Sat",
+                         "Sun", "Thu",
+                         "Tue", "Wed")
+
+train_orig_date = data.frame (pickupDT = train$pickup_datetime,
+                              dropoffDT = train$dropoff_datetime)
+train$pickup_datetime = NULL
+train$dropoff_datetime = NULL
+
+# Interaction variables with longitude and latitude
+train$diff_long = train$dropoff_longitude - train$pickup_longitude 
+train$diff_lat = train$dropoff_latitude - train$pickup_latitude
+```
+
+```{r}
+library(dplyr)
+set.seed(123)
+
+# Randomly selecting smaller portion of the data for faster model training
+train_x = sample_n(train, 500000)
+
+```
+
+
+```{r}
+## Feature Selection: Initial Model fit for varImportance using fast ml algorthms XGB and RF
+
+library(xgboost)
+param = list( eta = 0.25,
+              objective = "reg:linear", 
+              eval_metric = "rmse")
+
+mdl1 = xgboost(data = data.matrix(subset(train_x, select = -trip_duration) ),
+               label = data.matrix(train_x$trip_duration),
+               nrounds = 500,
+               params = param)
+
+xgb.plot.importance( xgb.importance(feature_names = colnames(subset(train_x, select = -trip_duration)),
+               model = mdl1) )
+
+library(ranger)
+mdl2 = ranger(formula = trip_duration ~.,
+              data = train_x,
+              num.trees = 500,
+              importance = "impurity"
+)
+imp = as.data.frame(importance(mdl2) )
+imp = cbind(imp, row.names(imp))
+colnames(imp) = c("importance", "var")
+library(plyr)
+RFimp =arrange(imp ,desc(importance) )
+
+
+```
+
+```{r}
+# Get test data
+
+testID = data.frame(id = test$id)
+test$id = NULL
+
+## Test 
+test$pickup_datetime = ymd_hms(test$pickup_datetime)
+test$pickup_hour = hour(test$pickup_datetime)
+test$pickup_month = month(test$pickup_datetime)
+test$pickup_wkdy = weekdays(test$pickup_datetime)
+
+library(plyr)
+test$is_weekend = mapvalues(test$pickup_wkdy,
+                             from = c("Friday", "Monday", 
+                                      "Wednesday", "Thursday", 
+                                      "Tuesday", 
+                                      "Saturday", "Sunday"),
+                             to = c( 0, 0,
+                                     0, 0,
+                                     0,
+                                     1, 1))
+test$is_weekend = as.numeric(test$is_weekend)
+
+library(dummies)
+sffD = as.data.frame(dummy(test$store_and_fwd_flag))
+test$store_and_fwd_flag = NULL
+test = cbind(sffD, test)
+test[,1] = NULL
+colnames(test)[1] = "store_and_fwd_flag"
+
+wkdyD = as.data.frame(dummy(test$pickup_wkdy))
+test = cbind(wkdyD, test)
+test[, 1]= NULL
+test$pickup_wkdy = NULL
+colnames(test)[1:6] = c("Mon", "Sat",
+                         "Sun", "Thu",
+                         "Tue", "Wed")
+
+test_orig_date = data.frame (pickupDT = test$pickup_datetime)
+
+test$pickup_datetime = NULL
+test$dropoff_datetime = NULL
+
+test$diff_long = test$dropoff_longitude - test$pickup_longitude 
+test$diff_lat = test$dropoff_latitude - test$pickup_latitude
+```
+
+
+
+```{r}
+## Get predictions
+rmse = function(actual, pred)
+{
+    sqrt(mean((actual - pred)^2))
+}
+
+mae = function(actual, pred)
+{
+    mean(abs(actual - pred))
+}
+
+mape = function (actual, pred) {
+  mean(abs((actual-pred)/actual) * 100)
+}
+
+mpe = function (actual, pred) {
+  mean( ((actual-pred)/actual) * 100)
+}
+
+
+### Train and test: Rows 500000:1000000
+## Prediction and assessment for XGBLinear
+mdl1_pred = predict(mdl1, data.matrix(subset(train[500000:1000000, ], select = -trip_duration)) )
+#mdl1_pred
+
+## Prediction and assessment for RF
+mdl2_pred = predict(mdl2 , subset(train[500000:1000000, ], select = -trip_duration) )
+#mdl2_pred$predictions
+
+print("XGBLinear 500000:1000000")
+rmse(train$trip_duration[500000:1000000], mdl1_pred)
+mae(train$trip_duration[500000:1000000], mdl1_pred)
+mpe(train$trip_duration[500000:1000000], mdl1_pred)
+mape(train$trip_duration[500000:1000000], mdl1_pred)
+
+print("RF - ranger")
+rmse(train$trip_duration[500000:1000000], mdl2_pred$predictions)
+mae(train$trip_duration[500000:1000000], mdl2_pred$predictions)
+mpe(train$trip_duration[500000:1000000], mdl2_pred$predictions)
+mape(train$trip_duration[500000:1000000], mdl2_pred$predictions)
+
+### Train and test: Rows 1:1458644
+## Prediction and assessment for XGBLinear
+mdl1_pred = predict(mdl1, data.matrix(subset(train[1:1458644, ], select = -trip_duration)) )
+#mdl1_pred
+
+## Prediction and assessment for RF
+mdl2_pred = predict(mdl2 , subset(train[1:1458644, ], select = -trip_duration) )
+#mdl2_pred$predictions
+
+print("XGBLinear 1:1458644")
+rmse(train$trip_duration[1:1458644], mdl1_pred)
+mae(train$trip_duration[1:1458644], mdl1_pred)
+mpe(train$trip_duration[1:1458644], mdl1_pred)
+mape(train$trip_duration[1:1458644], mdl1_pred)
+
+print("RF - ranger")
+rmse(train$trip_duration[1:1458644], mdl2_pred$predictions)
+mae(train$trip_duration[1:1458644], mdl2_pred$predictions)
+mpe(train$trip_duration[1:1458644], mdl2_pred$predictions)
+mape(train$trip_duration[1:1458644], mdl2_pred$predictions)
+```
+
+```{r}
+# RF performed better - create prediction file
+## Prediction and assessment for RF
+mdl2_fnl_pred = predict(mdl2 , test )
+
+mdl1_fnl_pred = predict(mdl1 , data.matrix(test) )
+
+
+# Output and submit RF alg results
+# write.csv(x = data.frame(id = testID$id,
+#                     trip_duration = mdl1_fnl_pred),
+#           file = "xgbLinear_subm.csv",
+#           row.names = FALSE)
+
+## Result - Score improvement
+```
+
+
+```{r}
+# Create ensemble model from rf and xgb - untuned - sample
+## Goal: Give more weight to the model with less error
+library(Metrics)
+
+weight = function(meas_a, meas_b) {
+  (1/meas_a) / ( (1/meas_a) + (1/meas_b) )
+}
+
+# XGB weight based on RMSLE
+xgb_w = weight(rmsle(abs(train$trip_duration[1:1458644]) , abs(mdl1_pred) ),
+               rmsle(abs(train$trip_duration[1:1458644]) , abs(mdl2_pred$predictions) ) )
+
+# RF weight based on RMSLE
+rf_w = weight(rmsle( abs(train$trip_duration[1:1458644]) , abs(mdl2_pred$predictions) ),
+              rmsle( abs(train$trip_duration[1:1458644]), abs(mdl1_pred) ) )
+
+ensemble_pred = data.frame( trip_duration = (mdl1_fnl_pred*xgb_w) + (mdl2_fnl_pred$predictions*rf_w) )
+
+# Check data for RMSLE scoring
+ensemble_pred %>% subset(trip_duration <= 0)
+ensemble_pred %>% subset(trip_duration == 0)
+
+# Quick fix of data -- for an example of how ensembles can improve ratings 
+ensemble_pred$trip_duration = abs(ensemble_pred$trip_duration)
+
+# write.csv(x = data.frame(id = testID$id,
+#                          trip_duration = ensemble_pred$trip_duration),
+#           file = "NYCTaxi/ensemble_xgb_rgr_subm.csv",
+#           row.names = FALSE)
+
+# Result: Submission - score was improved by 14 places compared to previous model
+```
+
+
