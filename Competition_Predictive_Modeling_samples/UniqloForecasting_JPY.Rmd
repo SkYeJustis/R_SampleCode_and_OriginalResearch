@@ -1,0 +1,225 @@
+---
+title: "Uniqlo Stock Analysis and Forecasting"
+output: html_notebook
+---
+
+Dataset is from: https://www.kaggle.com/daiearth22/uniqlo-fastretailing-stock-price-prediction
+Purpose is to predict 7 days ahead.
+Target is the "Close" price for this analysis and prediction.
+
+Neural Network Time Series Forecasting worked best.
+
+```{r}
+# Load data
+train = read.csv('Finance/Uniqlo(FastRetailing) 2012-2016 Training - stocks2012-2016.csv', header = TRUE)
+test = read.csv('Finance/Uniqlo(FastRetailing) 2017 Test - stocks2017.csv', header = TRUE)
+
+print("=== Train columns ===")
+colnames(train)
+str(train)
+print(" ==================== ")
+print("=== Test columns ===")
+colnames(test)
+str(test)
+```
+
+```{r}
+# Obtain date features
+library(lubridate)
+library(forecast)
+
+train$Date = ymd(train$Date)
+test$Date = ymd(test$Date)
+
+# Fill in date spaces
+library(plyr)
+train = arrange(train, Date)
+test = arrange(test, Date)
+
+# head(train, 2)
+# tail(train, 2)
+hh =  data.frame(date=seq(as.Date("2012-01-04"), as.Date("2016-12-30"), by="days"))
+train = merge(train,hh,by.x='Date',by.y='date',all.x=T,all.y=T)
+
+# head(test, 2)
+# tail(test, 2)
+hh2 = data.frame(date=seq(as.Date("2017-01-01"), as.Date("2017-01-13"), by="days"))
+test = merge(test,hh2,by.x='Date',by.y='date',all.x=T,all.y=T)
+
+```
+
+```{r}
+
+# Preview dates
+library(magrittr)
+library(ggplot2)
+
+train %>% ggplot(aes(x = Date, y = Close)) +
+  geom_line() +
+  scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m-%d") +
+  labs(title = "Time Series of Close Prices (JPY)",
+       x = "Date",
+       y = "Close (JPY)") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+```{r}
+train$weekday = weekdays(train$Date)
+test$weekday = weekdays(test$Date)
+
+table(train$weekday)
+
+train #Not all weekdays are avail. Weekends are missing
+
+# library(plyr)
+# train$is_weekend = mapvalues(train$weekday,
+#                              from = c("Friday", "Monday", 
+#                                       "Wednesday", "Thursday", 
+#                                       "Tuesday", 
+#                                       "Saturday", "Sunday"),
+#                              to = c( 0, 0,
+#                                      0, 0,
+#                                      0,
+#                                      1, 1))
+# train$is_weekend = as.numeric(train$is_weekend)
+# test$is_weekend = mapvalues(test$weekday,
+#                             from = c("Friday", "Monday", 
+#                                       "Wednesday", "Thursday", 
+#                                       "Tuesday", 
+#                                       "Saturday", "Sunday"),
+#                              to = c( 0, 0,
+#                                      0, 0,
+#                                      0,
+#                                      1, 1) )
+# test$is_weekend = as.numeric(test$is_weekend)
+
+train$month = month(train$Date, label = TRUE, abbr = TRUE)
+test$month = month(test$Date, label = TRUE, abbr = TRUE)
+
+table(train$month)
+
+```
+
+
+
+```{r}
+library(tseries)
+library(imputeTS)
+
+train$Close = na.interpolation(train$Close, option = "linear")
+test$Close = na.interpolation(test$Close, option = "linear")
+
+adf.test(train$Close) # Not stationary
+
+plot(diff(train$Close))
+adf.test(diff(train$Close))
+```
+
+```{r}
+# Might not be useful...
+
+library(dummies)
+wkdyD = dummy(train$weekday)
+monthD = dummy(train$month)
+
+train = cbind(wkdyD, train)
+train$weekdayFriday = NULL
+
+train = cbind(monthD, train)
+train$monthJan = NULL
+
+wkdyD = dummy(test$weekday)
+monthD = dummy(test$month)
+
+test = cbind(wkdyD, test)
+test$weekdayFriday = NULL
+
+test = cbind(monthD, test)
+colnames(test)
+```
+
+```{r}
+# Baseline ARIMA model
+mdl = auto.arima(train$Close)
+mdl
+
+pred = forecast(mdl,h=13)
+plot(pred)
+
+
+comparedf = data.frame(actual = test$Close,
+                       pred = pred$mean,
+                       date = test$Date)
+
+ggplot(comparedf, aes(date)) + 
+  geom_line(aes(y = pred, colour = "Prediction")) + 
+  geom_line(aes(y = actual, colour = "Actual")) +
+  labs(title = "Comparison of Prediction and Actual values",
+       x = "Date",
+       y = "Values") +
+  annotate("text", x = as.Date('2017-01-12'), y = 42000, 
+           label = paste("Correlation ", cor(pred$mean, test$Close), sep = " "),
+           size = 2.23) +
+  theme(legend.position="bottom")
+# Not very good prediction
+
+
+```
+
+```{r}
+# Applying RWF - approp for stocks
+mdl2 = rwf(y = train$Close,
+           h = 13,
+           drift = TRUE # Drift factor was found in auto.arima
+           )
+
+pred = forecast(mdl2,h=13)
+plot(pred)
+
+comparedf = data.frame(actual = test$Close,
+                       pred = pred$mean,
+                       date = test$Date)
+
+ggplot(comparedf, aes(date)) + 
+  geom_line(aes(y = pred, colour = "Prediction")) + 
+  geom_line(aes(y = actual, colour = "Actual")) +
+  labs(title = "Comparison of Prediction and Actual values",
+       x = "Date",
+       y = "Values") +
+  annotate("text", x = as.Date('2017-01-12'), y = 42000, 
+           label = paste("Correlation ", cor(pred$mean, test$Close), sep = " "),
+           size = 2.23) +
+  theme(legend.position="bottom")
+# Not very good prediction
+```
+
+```{r}
+
+# Applying NNetAR 
+mdl3 = nnetar(y = train$Close)
+
+pred = forecast(mdl3, h=13)
+plot(pred)
+
+comparedf = data.frame(actual = test$Close,
+                       pred = pred$mean,
+                       date = test$Date)
+
+ggplot(comparedf, aes(date)) + 
+  geom_line(aes(y = pred, colour = "Prediction")) + 
+  geom_line(aes(y = actual, colour = "Actual")) +
+  labs(title = "Comparison of Prediction and Actual values",
+       x = "Date",
+       y = "Values") +
+  annotate("text", x = as.Date('2017-01-12'), y = 42000, 
+           label = paste("Correlation ", cor(pred$mean, test$Close), sep = " "),
+           size = 2.23) +
+  theme(legend.position="bottom")
+
+# Better prediction. 
+```
+
+More to come...
+
+
