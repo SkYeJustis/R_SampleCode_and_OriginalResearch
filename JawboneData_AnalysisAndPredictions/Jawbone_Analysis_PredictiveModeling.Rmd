@@ -1,0 +1,341 @@
+---
+title: "Jawbone Data: 2016 - 2017"
+output: html_notebook
+---
+
+
+```{r}
+data = read.csv("JawboneData/2016_jwbn.csv", header = TRUE)
+d = read.csv("JawboneData/2017_jwbn.csv", header = TRUE)
+
+# colnames(data)
+# colnames(d)
+
+data = data[, -c(6:32)]
+d = d[, -c(37:38)]
+
+colnames(data)
+colnames(d)
+
+data = rbind(data, d)
+rm(d)
+```
+
+```{r}
+library(lubridate)
+library(magrittr)
+
+data$DATE = ymd(data$DATE)
+data = data %>% 
+  subset(DATE > as.Date("2016-05-21", "%Y-%m-%d") ) %>%
+  subset(DATE <= as.Date("2017-09-02", "%Y-%m-%d") )
+  
+
+# Remove data with the most NA
+x = as.data.frame(apply(data, 2, function(x) length(which(is.na(x)))) )
+colnames(x)[1] = "numNA"
+x = cbind(row.names(x),
+          x)
+colnames(x)[1] = "var"
+
+library(dplyr)
+x = arrange(x, desc(numNA))
+x
+
+# noquote(paste(x$var[1:15], collapse=", " ) ) 
+
+data = data %>% subset(select = -c(body_fat, goal_body_weight, n_asleep_time, n_awake, n_awake_time, n_awakenings, n_bedtime, n_clinical_deep, n_count, n_deep, n_duration, n_light, n_quality, n_rem, n_to_bed_phr)) 
+
+# Check NA
+x = as.data.frame(apply(data, 2, function(x) length(which(is.na(x)))) )
+colnames(x)[1] = "numNA"
+x = cbind(row.names(x),
+          x)
+colnames(x)[1] = "var"
+x
+```
+
+```{r}
+# More date variables 
+library(lubridate)
+library(plyr)
+
+data$month = month(data$DATE)
+data$weekday = weekdays(data$DATE)
+data$season = mapvalues(data$month,
+                         from = c(12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+                         to = c( "Winter", "Winter", "Winter",
+                                "Spring", "Spring", "Spring",
+                                "Summer",  "Summer", "Summer",
+                                "Fall", "Fall", "Fall"))
+data$is_weekend = mapvalues(data$weekday,
+                             from = c("Friday", "Monday", 
+                                      "Wednesday", "Thursday", 
+                                      "Tuesday", 
+                                      "Saturday", "Sunday"),
+                             to = c( 0, 0,
+                                     0, 0,
+                                     0,
+                                     1, 1))
+data$is_weekend = as.numeric(data$is_weekend)
+
+library(dummies)
+wkdyD = as.data.frame(dummy(data$weekday))
+data = cbind(wkdyD, data)
+colnames(data)[1:7] = gsub(")", "", colnames(data)[1:7])
+data[, 1] = NULL
+
+seasD = as.data.frame(dummy(data$season))
+data = cbind(seasD, data)
+colnames(data)[1:4] = gsub(")", "", colnames(data)[1:4])
+data[, 1] = NULL
+
+
+mnthD = as.data.frame(dummy(data$month))
+data = cbind(mnthD, data)
+colnames(data)[1:12] = gsub(")", "", colnames(data)[1:12])
+data[, 1] = NULL
+
+# Remove duplicates of encoded variables
+data$month = NULL
+data$weekday = NULL
+data$season = NULL
+
+# Review variables 
+str(data)
+```
+
+
+
+```{r}
+# We use the multiplot function, courtesy of R Cookbooks to create multi-panel plots.
+#
+# Define multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot = function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+
+```{r}
+library(ggplot2)
+library(magrittr)
+library(grid)
+
+options(scipen = 999)
+# Variable of interest
+data %>%
+  ggplot(aes(s_rem)) +
+  geom_histogram(fill = "red", bins = 150)
+
+p1 = data %>% ggplot(aes( x = s_clinical_deep)) +
+  geom_bar() +
+  theme(legend.position = "none") +
+  labs(title = "Histogram: Deep Sleep Length",
+       x = "s_clinical_deep",
+       y = "Frequency")
+
+
+p2 = data %>% ggplot(aes( x = rhr)) +
+  geom_bar() +
+  labs(title = "Histogram: RHR",
+       x = "RHR",
+       y = "Frequency") 
+
+layout = matrix(c(1,2),1,2,byrow=TRUE)
+multiplot(p1, p2, layout=layout)
+```
+
+```{r}
+data
+```
+
+```{r}
+data$gender = NULL
+data$age = NULL
+data$goal_body_weight_intent = NULL
+data$height = NULL
+data$s_count = NULL
+data$s_deep = NULL
+data$s_quality = NULL
+data$weight = NULL
+
+
+data
+```
+
+```{r}
+library(caret)
+set.seed(107)
+
+# Removes 4 rows
+data= na.omit(data)
+
+inTrain = createDataPartition(y = data$s_rem, 
+                               p = .80, 
+                               list = FALSE)
+train = data[ inTrain,]
+test = data[-inTrain,]
+
+
+filt_train = subset(train, select = c( DATE,
+                                    s_duration,
+                                    s_awake_time) )
+train =  subset(train, select = -c( DATE,
+                                    s_duration,
+                                    s_awake_time) )
+
+filt_test = subset(test, select = c( DATE,
+                                    s_duration,
+                                    s_awake_time) )
+test =  subset(test, select = -c( DATE,
+                                    s_duration,
+                                    s_awake_time) )
+
+
+
+mdl = train(x = subset(train, select = -c(s_rem) ),
+            y = train$s_rem,
+            method = "xgbTree",
+            trControl = trainControl(method = "cv",
+                                     number = 5))
+
+mdl
+varImp(mdl)
+
+mdl2 = train(x = subset(train, select = -c(s_rem) ),
+            y = train$s_rem,
+            method = "bayesglm",
+            trControl = trainControl(method = "cv",
+                                     number = 5))
+varImp(mdl2)
+
+```
+
+
+```{r}
+## Metrics: Predictions
+rmse = function(actual, pred)
+{
+    sqrt(mean((actual - pred)^2))
+}
+
+mae = function(actual, pred)
+{
+    mean(abs(actual - pred))
+}
+```
+
+
+```{r}
+
+## Different variable importances from the different models above - may benefit from ensemble modeling
+
+# Predictions from test
+pred_mdl = predict(mdl, subset(test, select = -c(s_rem)) )
+pred_mdl2 = predict(mdl2, subset(test, select = -c(s_rem)) )
+
+print("XGBoost Tree")
+rmse(test$s_rem, pred_mdl )
+mae(test$s_rem, pred_mdl)
+
+
+print("Bayesian Generalized Linear Models")
+rmse(test$s_rem, pred_mdl2 )
+mae(test$s_rem, pred_mdl2)
+
+
+library(caretEnsemble)
+
+model_list = caretList(
+  s_rem~., 
+  data=train,
+  trControl=trainControl(method = "cv", number = 5),
+  methodList=c("bayesglm", "xgbTree")
+  )
+
+xyplot(resamples(model_list))
+modelCor(resamples(model_list)) # Fairly uncorrelated & fairly similar accuracy as noted from metrics
+
+```
+
+
+```{r}
+greedy_ensemble = caretEnsemble(
+  model_list, 
+  metric="RMSE",
+  trControl=trainControl(method = "cv", number = 5) )
+summary(greedy_ensemble)
+
+# Get metrics for test
+pred_mdl3 = predict(greedy_ensemble, 
+                    subset(test, select = -c(s_rem)) )
+
+print("Greedy Ensemble")
+rmse(test$s_rem, pred_mdl3 )
+mae(test$s_rem, pred_mdl3)
+
+```
+
+```{r}
+imp = as.data.frame(varImp(greedy_ensemble) )
+imp = cbind(imp, row.names(imp))
+colnames(imp) = c("overall", "bayesglm", "xgbTree", "var")
+library(plyr)
+imp =arrange(imp ,desc(overall) )
+imp
+
+```
+
+The ensemble model showed improved error metrics over the individual models. 
+An examination of the overall variable importance points out that the resting heart rate,
+deep sleep length, light sleep, awake, winter, the weekend, which makes sense since these factors can impact quality of rem sleep.
+
+Of course, parameter tuning and other kinds of models can improve predictions.
+
+
+
+
+
+
+
