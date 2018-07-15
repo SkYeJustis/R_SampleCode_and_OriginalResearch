@@ -1,0 +1,331 @@
+---
+title: "Loan Prediction using AutoML"
+output: html_notebook
+---
+
+Data location: https://datahack.analyticsvidhya.com/contest/practice-problem-loan-prediction-iii/
+
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(caret)
+```
+
+
+```{r}
+# Importing the dataset
+train = data.table::fread('train.csv')
+test = data.table::fread('test.csv')
+
+```
+
+
+```{r}
+colnames(train)
+print("=====================================================")
+summary(train)
+head(train)
+```
+
+
+
+```{r}
+# Convert variables and determine NA's
+
+train$Gender[train$Gender==""] = NA
+train$Married[train$Married==""] = NA
+train$Self_Employed[train$Self_Employed==""] = NA
+train$Credit_History = as.character(train$Credit_History)
+train$Credit_History[train$Credit_History == "NA"] = NA
+
+train$Loan_ID=factor(train$Loan_ID)
+train$Gender=factor(train$Gender)
+train$Married=factor(train$Married)
+train$Education=factor(train$Education)
+train$Self_Employed=factor(train$Self_Employed)
+
+train$Dependents = as.numeric(train$Dependents)
+train$ApplicantIncome = as.numeric(train$ApplicantIncome)
+train$CoapplicantIncome = as.numeric(train$CoapplicantIncome)
+train$LoanAmount = as.numeric(train$LoanAmount)
+train$Loan_Amount_Term = as.numeric(train$Loan_Amount_Term)
+
+train$Credit_History = factor(train$Credit_History)
+train$Property_Area = factor(train$Property_Area)
+train$Loan_Status = factor(train$Loan_Status)
+
+
+test$Gender[test$Gender==""] = NA
+test$Married[test$Married==""] = NA
+test$Self_Employed[test$Self_Employed==""] = NA
+test$Credit_History = as.character(test$Credit_History)
+test$Credit_History[test$Credit_History == "NA"] = NA
+
+test$Loan_ID=factor(test$Loan_ID)
+test$Gender=factor(test$Gender)
+test$Married=factor(test$Married)
+test$Education=factor(test$Education)
+test$Self_Employed=factor(test$Self_Employed)
+
+test$Dependents = as.numeric(test$Dependents)
+test$ApplicantIncome = as.numeric(test$ApplicantIncome)
+test$CoapplicantIncome = as.numeric(test$CoapplicantIncome)
+test$LoanAmount = as.numeric(test$LoanAmount)
+test$Loan_Amount_Term = as.numeric(test$Loan_Amount_Term)
+
+test$Credit_History = factor(test$Credit_History)
+test$Property_Area = factor(test$Property_Area)
+#test$Loan_Status = factor(test$Loan_Status)
+
+```
+
+
+```{r}
+print("================================================")
+summary(train)
+print("================================================")
+summary(test)
+print("================================================")
+```
+
+
+```{r}
+library(purrr)
+library(tidyr)
+library(ggplot2)
+
+train %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ key, scales = "free") +
+    geom_histogram()
+```
+
+
+```{r}
+colnames(train)
+```
+
+
+```{r}
+print(paste0("===================Loan_Status================"))
+round(prop.table(table(train$Loan_Status)), 2)
+
+print(paste0("========================================"))
+print(paste0("==============All training=============="))
+print(paste0("========================================"))
+print(paste0("===================Gender================"))
+round(prop.table(table(train$Gender)), 2)
+print(paste0("==================Married================="))
+round(prop.table(table(train$Married)), 2)
+print(paste0("==============Education=============="))
+round(prop.table(table(train$Education)), 2)
+print(paste0("==============Self_Employed=============="))
+round(prop.table(table(train$Self_Employed)), 2)
+print(paste0("==============Credit_History=============="))
+round(prop.table(table(train$Credit_History)), 2)
+print(paste0("==============Property_Area=============="))
+round(prop.table(table(train$Property_Area)), 2)
+
+
+```
+
+
+
+
+```{r}
+# https://datascienceplus.com/handling-missing-data-with-mice-package-a-simple-approach/
+library(mice)
+
+init = mice(subset(train, select= -c(Loan_ID, 
+                                     Loan_Status)), 
+            maxit=0,
+            method = 'cart') 
+meth = init$method
+predM = init$predictorMatrix
+
+set.seed(103)
+imputed = mice(subset(train, select = -c(Loan_ID, 
+                                         Loan_Status)), 
+               method=meth, 
+               predictorMatrix=predM, 
+               m=5)
+
+impute = complete(imputed)
+```
+
+
+
+```{r}
+print("==================INITIAL TRAIN=====================")
+sapply(train, function(x)sum(is.na(x)))
+print("==================IMPUTE TRAIN=====================")
+sapply(impute, function(x)sum(is.na(x)))
+print("=======================FINAL IMPUTE===================")
+train$Gender = impute$Gender
+train$Married = impute$Married
+train$Dependents = impute$Dependents
+train$Self_Employed = impute$Self_Employed
+train$LoanAmount = impute$LoanAmount
+train$Loan_Amount_Term = impute$Loan_Amount_Term
+train$Credit_History = impute$Credit_History
+
+sapply(train, function(x)sum(is.na(x)))
+```
+
+
+```{r}
+print(paste0("======================================================"))
+print(paste0("==============All training: After impute=============="))
+print(paste0("======================================================"))
+print(paste0("===================Gender================"))
+round(prop.table(table(train$Gender)), 2)
+print(paste0("==================Married================="))
+round(prop.table(table(train$Married)), 2)
+print(paste0("==============Education=============="))
+round(prop.table(table(train$Education)), 2)
+print(paste0("==============Self_Employed=============="))
+round(prop.table(table(train$Self_Employed)), 2)
+print(paste0("==============Credit_History=============="))
+round(prop.table(table(train$Credit_History)), 2)
+print(paste0("==============Property_Area=============="))
+round(prop.table(table(train$Property_Area)), 2)
+
+```
+
+
+
+```{r}
+library(mice)
+
+init = mice(subset(test, select= -c(Loan_ID)), 
+            maxit=0,
+            method = 'cart') 
+meth = init$method
+predM = init$predictorMatrix
+
+set.seed(103)
+imputed = mice(subset(test, select = -c(Loan_ID)), 
+               method=meth, 
+               predictorMatrix=predM, 
+               m=5)
+
+impute = complete(imputed)
+
+test$Gender = impute$Gender
+#test$Married = impute$Married
+test$Dependents = impute$Dependents
+test$Self_Employed = impute$Self_Employed
+test$LoanAmount = impute$LoanAmount
+test$Loan_Amount_Term = impute$Loan_Amount_Term
+test$Credit_History = impute$Credit_History
+
+sapply(test, function(x)sum(is.na(x)))
+```
+
+
+```{r}
+rm(impute)
+rm(imputed)
+rm(init)
+rm(predM)
+rm(meth)
+```
+
+```{r}
+print("================================================")
+summary(train)
+```
+
+```{r}
+library(h2o)
+h2o.init(nthreads=-1,
+         max_mem_size = "60g")
+```
+
+```{r}
+colnames(train)
+```
+
+```{r}
+y = "Loan_Status"
+x =  c("Gender","Married","Dependents",
+       "Education" ,"Self_Employed","ApplicantIncome","CoapplicantIncome",
+       "LoanAmount","Loan_Amount_Term","Credit_History","Property_Area")
+
+# Splitting the dataset into the Training set and Test set
+library(caTools)
+set.seed(123)
+split = sample.split(train$Loan_Status, 
+                     SplitRatio = 4/5)
+training_set = subset(train, 
+                      split == TRUE)
+valid_set = subset(train, 
+                   split == FALSE)
+
+d_training_set = as.h2o(training_set)
+d_valid_set = as.h2o(valid_set)
+d_test = as.h2o(test)
+```
+
+```{r}
+aml = h2o::h2o.automl(x = x, 
+                 y = y,
+                 training_frame = d_training_set,
+                 validation_frame = d_valid_set,
+                 max_runtime_secs = 3600)
+
+```
+
+
+```{r}
+# make predictions
+pred = as.data.frame(h2o.predict(aml@leader, 
+                                 d_test,
+                                 type="class"))
+
+results = data.frame( Loan_ID = test$Loan_ID,
+                      Loan_Status = pred )
+
+```
+
+```{r}
+colnames(results)
+results = subset(results,
+                 select = -c(Loan_Status.N, Loan_Status.Y) )
+colnames(results) = c("Loan_ID", "Loan_Status")
+colnames(results)
+```
+
+
+```{r}
+# Create submission file
+data.table::fwrite(results, file = 'automl_00.csv', row.names = FALSE)
+
+```
+
+```{r}
+aml@leaderboard
+```
+
+```{r}
+aml@leader
+```
+
+
+Next steps to improve accuracy:
+* Feature engineering
+```{r}
+# Has_Dependents
+# Has_CoApplicant_Income
+# Income_Comparison
+# Loan_Amount
+```
+* Outlier detection and handling
+* Any feature transformations
+
+
+
+
