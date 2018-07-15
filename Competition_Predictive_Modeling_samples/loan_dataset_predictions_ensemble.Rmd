@@ -1,0 +1,629 @@
+---
+title: "Loan Prediction using Caret and CaretEnsemble"
+output: html_notebook
+---
+
+Data location: https://datahack.analyticsvidhya.com/contest/practice-problem-loan-prediction-iii/
+
+Operations performed:
+* Data type conversion
+* Missing value imputation
+* Evaluation of single models (basic + ensemble types)
+* Evaluation of an ensemble model (combining multiple model methods)
+
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(caret)
+```
+
+
+```{r}
+# Importing the dataset
+train = data.table::fread('train.csv')
+test = data.table::fread('test.csv')
+
+```
+
+
+```{r}
+colnames(train)
+print("=====================================================")
+summary(train)
+head(train)
+```
+
+
+```{r}
+# Convert variables and determine NA's
+
+train$Gender[train$Gender==""] = NA
+train$Married[train$Married==""] = NA
+train$Self_Employed[train$Self_Employed==""] = NA
+train$Credit_History = as.character(train$Credit_History)
+train$Credit_History[train$Credit_History == "NA"] = NA
+
+train$Loan_ID=factor(train$Loan_ID)
+train$Gender=factor(train$Gender)
+train$Married=factor(train$Married)
+train$Education=factor(train$Education)
+train$Self_Employed=factor(train$Self_Employed)
+
+train$Dependents = as.numeric(train$Dependents)
+train$ApplicantIncome = as.numeric(train$ApplicantIncome)
+train$CoapplicantIncome = as.numeric(train$CoapplicantIncome)
+train$LoanAmount = as.numeric(train$LoanAmount)
+train$Loan_Amount_Term = as.numeric(train$Loan_Amount_Term)
+
+train$Credit_History = factor(train$Credit_History)
+train$Property_Area = factor(train$Property_Area)
+train$Loan_Status = factor(train$Loan_Status)
+
+
+test$Gender[test$Gender==""] = NA
+test$Married[test$Married==""] = NA
+test$Self_Employed[test$Self_Employed==""] = NA
+test$Credit_History = as.character(test$Credit_History)
+test$Credit_History[test$Credit_History == "NA"] = NA
+
+test$Loan_ID=factor(test$Loan_ID)
+test$Gender=factor(test$Gender)
+test$Married=factor(test$Married)
+test$Education=factor(test$Education)
+test$Self_Employed=factor(test$Self_Employed)
+
+test$Dependents = as.numeric(test$Dependents)
+test$ApplicantIncome = as.numeric(test$ApplicantIncome)
+test$CoapplicantIncome = as.numeric(test$CoapplicantIncome)
+test$LoanAmount = as.numeric(test$LoanAmount)
+test$Loan_Amount_Term = as.numeric(test$Loan_Amount_Term)
+
+test$Credit_History = factor(test$Credit_History)
+test$Property_Area = factor(test$Property_Area)
+#test$Loan_Status = factor(test$Loan_Status)
+
+```
+
+
+```{r}
+print("================================================")
+summary(train)
+print("================================================")
+summary(test)
+print("================================================")
+```
+
+
+```{r}
+library(purrr)
+library(tidyr)
+library(ggplot2)
+
+train %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ key, scales = "free") +
+    geom_histogram()
+```
+
+
+```{r}
+colnames(train)
+```
+
+
+```{r}
+print(paste0("===================Loan_Status================"))
+round(prop.table(table(train$Loan_Status)), 2)
+
+print(paste0("========================================"))
+print(paste0("==============All training=============="))
+print(paste0("========================================"))
+print(paste0("===================Gender================"))
+round(prop.table(table(train$Gender)), 2)
+print(paste0("==================Married================="))
+round(prop.table(table(train$Married)), 2)
+print(paste0("==============Education=============="))
+round(prop.table(table(train$Education)), 2)
+print(paste0("==============Self_Employed=============="))
+round(prop.table(table(train$Self_Employed)), 2)
+print(paste0("==============Credit_History=============="))
+round(prop.table(table(train$Credit_History)), 2)
+print(paste0("==============Property_Area=============="))
+round(prop.table(table(train$Property_Area)), 2)
+
+
+```
+
+
+
+
+```{r}
+# https://datascienceplus.com/handling-missing-data-with-mice-package-a-simple-approach/
+library(mice)
+
+init = mice(subset(train, select= -c(Loan_ID, 
+                                     Loan_Status)), 
+            maxit=0,
+            method = 'cart') 
+meth = init$method
+predM = init$predictorMatrix
+
+set.seed(103)
+imputed = mice(subset(train, select = -c(Loan_ID, 
+                                         Loan_Status)), 
+               method=meth, 
+               predictorMatrix=predM, 
+               m=5)
+
+impute = complete(imputed)
+```
+
+
+
+```{r}
+print("==================INITIAL TRAIN=====================")
+sapply(train, function(x)sum(is.na(x)))
+print("==================IMPUTE TRAIN=====================")
+sapply(impute, function(x)sum(is.na(x)))
+print("=======================FINAL IMPUTE===================")
+train$Gender = impute$Gender
+train$Married = impute$Married
+train$Dependents = impute$Dependents
+train$Self_Employed = impute$Self_Employed
+train$LoanAmount = impute$LoanAmount
+train$Loan_Amount_Term = impute$Loan_Amount_Term
+train$Credit_History = impute$Credit_History
+
+sapply(train, function(x)sum(is.na(x)))
+```
+
+
+```{r}
+print(paste0("======================================================"))
+print(paste0("==============All training: After impute=============="))
+print(paste0("======================================================"))
+print(paste0("===================Gender================"))
+round(prop.table(table(train$Gender)), 2)
+print(paste0("==================Married================="))
+round(prop.table(table(train$Married)), 2)
+print(paste0("==============Education=============="))
+round(prop.table(table(train$Education)), 2)
+print(paste0("==============Self_Employed=============="))
+round(prop.table(table(train$Self_Employed)), 2)
+print(paste0("==============Credit_History=============="))
+round(prop.table(table(train$Credit_History)), 2)
+print(paste0("==============Property_Area=============="))
+round(prop.table(table(train$Property_Area)), 2)
+
+```
+
+
+
+```{r}
+library(mice)
+
+init = mice(subset(test, select= -c(Loan_ID)), 
+            maxit=0,
+            method = 'cart') 
+meth = init$method
+predM = init$predictorMatrix
+
+set.seed(103)
+imputed = mice(subset(test, select = -c(Loan_ID)), 
+               method=meth, 
+               predictorMatrix=predM, 
+               m=5)
+
+impute = complete(imputed)
+
+test$Gender = impute$Gender
+#test$Married = impute$Married
+test$Dependents = impute$Dependents
+test$Self_Employed = impute$Self_Employed
+test$LoanAmount = impute$LoanAmount
+test$Loan_Amount_Term = impute$Loan_Amount_Term
+test$Credit_History = impute$Credit_History
+
+sapply(test, function(x)sum(is.na(x)))
+```
+
+
+```{r}
+rm(impute)
+rm(imputed)
+rm(init)
+rm(predM)
+rm(meth)
+```
+
+```{r}
+print("================================================")
+summary(train)
+```
+
+```{r}
+# BASE MODEL - naive bayes
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+nb.caret = train(Loan_Status ~., 
+                     subset(train, select = -c(Loan_ID) ), 
+                     method = "naive_bayes",
+                     trControl = ctrl)
+
+nb.caret
+
+train_pred = predict(nb.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+```{r}
+test_pred = predict(nb.caret, 
+                    test)
+
+submission =   data.frame( Loan_ID = test$Loan_ID,
+                           Loan_Status = test_pred )
+
+
+write.csv(submission, 
+          file="submission_00.csv",
+          row.names = FALSE)
+```
+
+
+```{r}
+# rpart - model depth
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+rpart2.caret = train(Loan_Status ~., 
+                     subset(train, select = -c(Loan_ID) ), 
+                     method = "rpart2",
+                     trControl = ctrl)
+
+rpart2.caret
+
+train_pred = predict(rpart2.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+```{r}
+rpart2.caret$finalModel
+```
+
+
+```{r}
+# ranger - model depth
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+ranger.caret = train(Loan_Status ~., 
+                     subset(train, select = -c(Loan_ID) ), 
+                     method = "ranger",
+                     trControl = ctrl)
+
+ranger.caret
+
+train_pred = predict(ranger.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+```{r}
+test_pred = predict(ranger.caret, 
+                    test)
+
+submission =   data.frame( Loan_ID = test$Loan_ID,
+                           Loan_Status = test_pred )
+
+
+write.csv(submission, 
+          file="submission_02.csv",
+          row.names = FALSE)
+```
+
+
+```{r}
+# knn - model depth
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+kknn.caret = train(Loan_Status ~., 
+                     subset(train, select = -c(Loan_ID) ), 
+                     method = "kknn",
+                     trControl = ctrl)
+
+kknn.caret
+
+train_pred = predict(kknn.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+```{r}
+# Promising knn model -- RMSE seems to differ on the final dataset (unpredictable performance)
+test_pred = predict(kknn.caret, 
+                    test)
+
+submission =   data.frame( Loan_ID = test$Loan_ID,
+                           Loan_Status = test_pred )
+
+
+write.csv(submission, 
+          file="submission_01.csv",
+          row.names = FALSE)
+```
+
+
+```{r}
+# svmLinear2 - model depth
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+svmLinear2.caret = train(Loan_Status ~., 
+                     subset(train, select = -c(Loan_ID) ), 
+                     method = "svmLinear2",
+                     trControl = ctrl)
+
+svmLinear2.caret
+
+train_pred = predict(svmLinear2.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+
+```{r}
+# glmStepAIC - model depth
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+glmStepAIC.caret = train(Loan_Status ~., 
+                     subset(train, select = -c(Loan_ID) ), 
+                     method = "glmStepAIC",
+                     trControl = ctrl)
+
+glmStepAIC.caret
+
+train_pred = predict(glmStepAIC.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+
+```{r}
+# regLogistic - model depth
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+regLogistic.caret = train(Loan_Status ~., 
+                     subset(train, select = -c(Loan_ID) ), 
+                     method = "regLogistic",
+                     trControl = ctrl)
+
+regLogistic.caret
+
+train_pred = predict(regLogistic.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+
+```{r}
+# xgbTree - model depth
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+xgbTree.caret = train(Loan_Status ~., 
+                     subset(train, select = -c(Loan_ID) ), 
+                     method = "xgbTree",
+                     trControl = ctrl)
+
+xgbTree.caret
+
+train_pred = predict(xgbTree.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+
+```{r}
+test_pred = predict(xgbTree.caret, 
+                    test)
+
+submission =   data.frame( Loan_ID = test$Loan_ID,
+                           Loan_Status = test_pred )
+
+
+write.csv(submission, 
+          file="submission_03.csv",
+          row.names = FALSE)
+```
+
+
+```{r}
+library(plyr)
+library(RLightGBM)
+
+model = caretModel.LGBM()
+
+ctrl = trainControl(method = "cv", 
+                     number = 10)
+
+lgb.caret = train(Loan_Status ~ ., 
+                  data = subset(train, select = -c(Loan_ID) ), 
+                  method=model, 
+                  verbosity = -1,
+                  trControl = ctrl)
+
+print(lgb.caret)
+
+train_pred = predict(lgb.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+
+
+```{r}
+library(plyr)
+library(catboost)
+
+ctrl = trainControl(method = "cv", number = 10)
+
+grid = expand.grid(depth = c(4, 6, 8),
+                    learning_rate = 0.05,
+                    iterations = 500, 
+                    l2_leaf_reg = 1e-3,            
+                    rsm = 0.95, 
+                    border_count = 64)
+
+cb.caret = train(subset(train, select = -c(Loan_ID, Loan_Status) ), 
+                 as.factor(make.names(train$Loan_Status)),
+                  #x = subset(train, select = -c(Loan_ID) ), 
+                 #y = train$Loan_Status,
+                 method = catboost.caret,
+                 #verbose = TRUE, 
+                 #preProc = NULL,
+                tuneGrid = grid, 
+                trControl = ctrl)
+
+print(cb.caret)
+
+importance = varImp(cb.caret, scale = FALSE)
+print(importance)
+
+train_pred = predict(cb.caret, train)
+
+print( paste0("Accuracy: ", Metrics::accuracy(train$Loan_Status,train_pred)))
+print( paste0("AUC: ", Metrics::auc(train$Loan_Status,train_pred)))
+print( paste0("RECALL: ", Metrics::recall(train$Loan_Status,train_pred)))
+print( paste0("PRECISION: ", Metrics::precision(train$Loan_Status,train_pred)))
+```
+
+```{r}
+test_pred = predict(cb.caret, 
+                    test)
+
+submission =   data.frame( Loan_ID = test$Loan_ID,
+                           Loan_Status = test_pred )
+
+
+write.csv(submission, 
+          file="submission_05.csv",
+          row.names = FALSE)
+```
+
+
+
+```{r}
+#https://machinelearningmastery.com/machine-learning-ensembles-with-r/
+#library(data.table)
+library(caretEnsemble)
+
+set.seed(123)
+control = trainControl(method="cv", 
+                       number=10, 
+                       savePredictions=TRUE, 
+                       classProbs=TRUE)
+
+algorithmList = c('kknn', 'ranger', 'xgbTree', 'naive_bayes', 'svmLinear2')
+
+models = caretList(Loan_Status ~., 
+                   data=subset(train, 
+                               select= -c(Loan_ID) ), 
+                   trControl=control, 
+                   methodList=algorithmList)
+
+
+## Custom list of fitted models ##
+#models = list(kknn.caret,
+#              ranger.caret,
+#              xgbTree.caret,
+#              nb.caret,
+#              cb.caret)
+
+
+results = resamples(models)
+summary(results)
+dotplot(results)
+
+```
+
+
+```{r}
+# correlation between results
+modelCor(results)
+splom(results)
+```
+
+
+```{r}
+# stack using glm
+stackControl = trainControl(method="cv", number=10, 
+                            savePredictions=TRUE, classProbs=TRUE)
+set.seed(123)
+stack.glm = caretStack(models, method="glm", metric="Accuracy", trControl=stackControl)
+print(stack.glm)
+```
+
+
+
+```{r}
+## Overfit - Did not perform well
+## While the models were not closely correlated, the results of models meta-combined using glm overfit and the models produced a 21% accuracy (very unlike the "stack.glm" results)
+test_pred = predict(stack.glm, 
+                    test)
+
+submission =   data.frame( Loan_ID = test$Loan_ID,
+                           Loan_Status = test_pred )
+
+
+write.csv(submission, 
+          file="submission_06.csv",
+          row.names = FALSE)
+```
+
+
+
+```{r}
+library(pryr)
+mem_used()
+```
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
